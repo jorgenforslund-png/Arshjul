@@ -1,6 +1,6 @@
 import { getStore } from "@netlify/blobs";
 
-const APP_VERSION = "1.3";
+const APP_VERSION = "1.4";
 const SCHEMA_VERSION = 4;
 const STORE_NAME = "arshjulet-shared";
 const MAX_BACKUPS = 100;
@@ -88,6 +88,68 @@ function validate(value) {
   return "";
 }
 
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+function mergeCollection(collection, baseItems, localItems, remoteItems, conflicts) {
+  const base = new Map(baseItems.map((item) => [item.id, item]));
+  const local = new Map(localItems.map((item) => [item.id, item]));
+  const remote = new Map(remoteItems.map((item) => [item.id, item]));
+  const ids = [...new Set([...base.keys(), ...remote.keys(), ...local.keys()])];
+  const result = [];
+
+  for (const id of ids) {
+    const before = base.get(id);
+    const mine = local.get(id);
+    const theirs = remote.get(id);
+    const mineChanged = !same(mine, before);
+    const theirsChanged = !same(theirs, before);
+    let chosen = theirs;
+
+    if (mineChanged && !theirsChanged) chosen = mine;
+    if (mineChanged && theirsChanged) {
+      if (same(mine, theirs)) chosen = mine;
+      else {
+        conflicts.push({
+          collection,
+          id,
+          base: before ?? null,
+          local: mine ?? null,
+          remote: theirs ?? null,
+        });
+      }
+    }
+    if (chosen !== undefined) result.push(chosen);
+  }
+  return result;
+}
+
+function mergeSettings(base, local, remote, conflicts) {
+  const result = { ...remote };
+  const keys = [...new Set([...Object.keys(base), ...Object.keys(remote), ...Object.keys(local)])];
+  for (const key of keys) {
+    const mineChanged = !same(local[key], base[key]);
+    const theirsChanged = !same(remote[key], base[key]);
+    if (mineChanged && !theirsChanged) result[key] = local[key];
+    else if (mineChanged && theirsChanged && !same(local[key], remote[key])) {
+      conflicts.push({ collection: "settings", id: key, base: base[key] ?? null, local: local[key] ?? null, remote: remote[key] ?? null });
+    }
+  }
+  return result;
+}
+
+function mergeStates(baseInput, localInput, remoteInput) {
+  const base = migrate(baseInput);
+  const local = migrate(localInput);
+  const remote = migrate(remoteInput);
+  const conflicts = [];
+  const merged = structuredClone(remote);
+  merged.settings = mergeSettings(base.settings, local.settings, remote.settings, conflicts);
+  merged.types = mergeCollection("types", base.types, local.types, remote.types, conflicts);
+  merged.owners = mergeCollection("owners", base.owners, local.owners, remote.owners, conflicts);
+  merged.activities = mergeCollection("activities", base.activities, local.activities, remote.activities, conflicts);
+  return { merged, conflicts };
+}
+
 async function pruneBackups(store) {
   const { blobs } = await store.list({ prefix: BACKUP_PREFIX });
   if (blobs.length <= MAX_BACKUPS) return;
@@ -141,25 +203,46 @@ export default async (request) => {
       }
       const problem = validate(payload.data);
       if (problem) return json({ error: problem, code: "VALIDATION" }, 400);
+      const baseProblem = validate(payload.baseData);
+      if (baseProblem) return json({ error: "Synkroniseringsunderlaget saknas. Ladda om sidan.", code: "BASE_DATA" }, 400);
 
-      const current = await readCurrent(store);
-      if (!payload.etag || payload.etag !== current.etag) {
-        return json({ error: "Någon annan har sparat en nyare version.", code: "CONFLICT", current: migrate(current.data) }, 409, { etag: current.etag });
+      const local = migrate(payload.data);
+      let current = await readCurrent(store);
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const remote = migrate(current.data);
+        let next = local;
+        if (!payload.etag || payload.etag !== current.etag) {
+          const merge = mergeStates(payload.baseData, local, remote);
+          if (merge.conflicts.length) {
+            return json({
+              error: "Samma information har ändrats av två användare.",
+              code: "CONFLICT",
+              current: remote,
+              merged: merge.merged,
+              conflicts: merge.conflicts,
+            }, 409, { etag: current.etag });
+          }
+          next = merge.merged;
+        }
+
+        if (same(next.settings, remote.settings) && same(next.types, remote.types) && same(next.owners, remote.owners) && same(next.activities, remote.activities)) {
+          return json({ data: remote, appVersion: APP_VERSION, autoMerged: payload.etag !== current.etag }, 200, { etag: current.etag });
+        }
+
+        next.revision = (Number(remote.revision) || 0) + 1;
+        next.updatedAt = new Date().toISOString();
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        await store.setJSON(`${BACKUP_PREFIX}${stamp}-${crypto.randomUUID().slice(0, 8)}-r${String(remote.revision || 0).padStart(6, "0")}`, remote);
+        const result = await store.setJSON(DATA_KEY, next, { onlyIfMatch: current.etag });
+        if (result.modified) {
+          await pruneBackups(store);
+          return json({ data: next, appVersion: APP_VERSION, autoMerged: payload.etag !== current.etag }, 200, { etag: result.etag });
+        }
+        current = await readCurrent(store);
       }
 
-      const next = migrate(payload.data);
-      next.revision = (Number(current.data.revision) || 0) + 1;
-      next.updatedAt = new Date().toISOString();
-
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      await store.setJSON(`${BACKUP_PREFIX}${stamp}-r${String(current.data.revision || 0).padStart(6, "0")}`, current.data);
-      const result = await store.setJSON(DATA_KEY, next, { onlyIfMatch: current.etag });
-      if (!result.modified) {
-        const latest = await readCurrent(store);
-        return json({ error: "Någon annan hann spara före dig.", code: "CONFLICT", current: migrate(latest.data) }, 409, { etag: latest.etag });
-      }
-      await pruneBackups(store);
-      return json({ data: next, appVersion: APP_VERSION }, 200, { etag: result.etag });
+      return json({ error: "Flera ändringar kom in samtidigt. Försök igen.", code: "BUSY" }, 409, { etag: current.etag });
     }
 
     return json({ error: "Metoden stöds inte." }, 405, { allow: "GET, PUT" });
@@ -171,4 +254,4 @@ export default async (request) => {
 
 export const config = { path: "/api/data" };
 
-export { defaults, migrate, validate };
+export { defaults, mergeStates, migrate, validate };
