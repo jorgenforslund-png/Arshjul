@@ -1,4 +1,4 @@
-# Årshjulet – delad Netlify-version 1.1
+# Årshjulet – delad Netlify-version 1.3
 
 Den här versionen använder Netlify Functions och Netlify Blobs så att alla som öppnar samma Netlify-adress arbetar med samma aktiviteter, typer, ansvariga och inställningar.
 
@@ -24,6 +24,8 @@ Vanlig statisk drag-och-släpp-publicering ska inte användas eftersom appen inn
 - Dataformatet har `schemaVersion` och migreras till aktuell struktur när det läses eller sparas.
 - Appen kontrollerar var 20:e sekund om någon annan har gjort ändringar.
 - Produktionsdriftsättningen använder produktionsdata. Deploy previews och lokal utveckling får automatiskt en separat kopia och kan därför inte skriva över teamets riktiga data.
+- Automatiskt skapade upprepningar som infaller på lördag eller söndag flyttas till följande måndag. När användaren själv drar endast ett tillfälle till en helg tillåts placeringen och aktivitetskortet markeras med röd ram.
+- Färginställningen styr den stora bakgrunden utanför årshjulet. Årshjulets egen kant förblir neutral.
 
 ## Åtkomst
 
