@@ -1,7 +1,7 @@
 import { getStore } from "@netlify/blobs";
 
-const APP_VERSION = "1.1";
-const SCHEMA_VERSION = 2;
+const APP_VERSION = "1.3";
+const SCHEMA_VERSION = 4;
 const STORE_NAME = "arshjulet-shared";
 const MAX_BACKUPS = 100;
 const DEPLOY_CONTEXT = process.env.CONTEXT || "dev";
@@ -29,7 +29,7 @@ function defaults() {
       eyebrow: "Verksamhetsplanering",
       title: "Årshjulet",
       subtitle: "Samla årets aktiviteter i en tydlig rytm.",
-      frameColor: "#d8ddd9",
+      backgroundColor: "#f1efe9",
     },
     types: [
       { id: uid(), name: "Ledning", color: "#2f765f" },
@@ -51,17 +51,29 @@ function defaults() {
 
 function migrate(input) {
   if (!input || typeof input !== "object") return defaults();
+  const sourceSchema = Number(input.schemaVersion) || 1;
   const value = structuredClone(input);
   if (!Array.isArray(value.types)) value.types = [];
   if (!Array.isArray(value.owners)) value.owners = [];
   if (!Array.isArray(value.activities)) value.activities = [];
   if (!value.settings || typeof value.settings !== "object") value.settings = {};
+  const backgroundColor = value.settings.backgroundColor || value.settings.frameColor || "#f1efe9";
   value.settings = {
     eyebrow: String(value.settings.eyebrow || "Verksamhetsplanering").slice(0, 100),
     title: String(value.settings.title || "Årshjulet").slice(0, 100),
     subtitle: String(value.settings.subtitle || "Samla årets aktiviteter i en tydlig rytm.").slice(0, 180),
-    frameColor: /^#[0-9a-f]{6}$/i.test(value.settings.frameColor || "") ? value.settings.frameColor : "#d8ddd9",
+    backgroundColor: /^#[0-9a-f]{6}$/i.test(backgroundColor) ? backgroundColor : "#f1efe9",
   };
+  if (sourceSchema < 3) {
+    value.activities = value.activities.map((activity) => {
+      if (!activity || !activity.seriesId || !activity.date) return activity;
+      const date = new Date(`${activity.date}T12:00:00`);
+      const day = date.getDay();
+      if (day === 6) date.setDate(date.getDate() + 2);
+      if (day === 0) date.setDate(date.getDate() + 1);
+      return { ...activity, date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}` };
+    });
+  }
   value.schemaVersion = SCHEMA_VERSION;
   value.revision = Number.isInteger(value.revision) ? value.revision : 0;
   value.updatedAt = value.updatedAt || new Date().toISOString();
@@ -158,3 +170,5 @@ export default async (request) => {
 };
 
 export const config = { path: "/api/data" };
+
+export { defaults, migrate, validate };
