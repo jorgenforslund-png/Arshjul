@@ -1,4 +1,4 @@
-# Årshjulet – delad Netlify-version 1.5
+# Årshjulet – delad Netlify-version 1.7
 
 Den här versionen använder Netlify Functions och Netlify Blobs så att alla som öppnar samma Netlify-adress arbetar med samma aktiviteter, typer, ansvariga och inställningar.
 
@@ -28,7 +28,8 @@ Vanlig statisk drag-och-släpp-publicering ska inte användas eftersom appen inn
 - Färginställningen styr den stora bakgrunden utanför årshjulet. Årshjulets egen kant förblir neutral.
 - Samtidiga ändringar i olika aktiviteter slås samman automatiskt. Om två användare ändrar samma aktivitet visas båda versionerna och användaren väljer vilken som ska behållas.
 - En lokal konfliktsäkerhetskopia kan återställas från kugghjulsmenyn.
-- Sammanhängande flerdagarsaktiviteter har start- och slutdatum, räknas som en aktivitet och visas separat från dagliga upprepningar. Helgdagar inom perioden behålls.
+- Sammanhängande flerdagarsaktiviteter har start- och slutdatum, räknas som en aktivitet och visas separat från dagliga upprepningar. De kan flyttas genom att dra själva perioden eller dess etikett; periodens längd och eventuella helgdagar behålls.
+- En uppdateringslogg i kugghjulsmenyn visar alla versioner med den senaste högst upp. Vid nya releaser läggs en kort sammanfattning först i listan `CHANGELOG`.
 
 ## Åtkomst
 
