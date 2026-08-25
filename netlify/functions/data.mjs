@@ -1,6 +1,6 @@
 import { getStore } from "@netlify/blobs";
 
-const APP_VERSION = "1.4";
+const APP_VERSION = "1.5";
 const SCHEMA_VERSION = 4;
 const STORE_NAME = "arshjulet-shared";
 const MAX_BACKUPS = 100;
